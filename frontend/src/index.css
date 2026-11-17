@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: 246 241 232; --card: 255 252 246; --ink: 28 40 38; --muted: 98 112 108; --teal: 15 118 110;
+  --saffron: 200 105 5; --line: 222 213 196; --bad: 174 52 28; --good: 24 120 70;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: 14 25 24; --card: 22 36 35; --ink: 232 240 237; --muted: 150 170 165; --teal: 79 209 192;
+          --saffron: 240 168 60; --line: 42 66 62; --bad: 255 138 107; --good: 111 220 156; }
+}
+html { color-scheme: light dark; }
+body { @apply bg-paper text-ink font-sans antialiased; }
+:focus-visible { outline: 3px solid rgb(var(--saffron)); outline-offset: 2px; }
+.btn { @apply inline-flex items-center justify-center rounded-lg border border-line px-4 py-2 text-sm font-semibold transition hover:border-teal disabled:cursor-not-allowed disabled:opacity-50; }
+.btn-primary { @apply border-teal bg-teal text-paper hover:opacity-90; }
+.input { @apply w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm placeholder:text-muted/70; }
+.card { @apply rounded-xl border border-line bg-card p-5; }
+@media (prefers-reduced-motion: no-preference) { .fade { animation: fade .25s ease-out; } @keyframes fade { from { opacity: 0; transform: translateY(3px);} } }
