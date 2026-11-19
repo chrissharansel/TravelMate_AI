@@ -185,22 +185,38 @@ class PlannerAgent:
 
 
 def greedy_picks(catalog: dict[str, Item], parsed: ParsedRequest, caps: dict, strategy: Strategy) -> Picks:
-    """Deterministic planner used only when the LLM cannot produce valid JSON."""
+    """Deterministic fallback planner with explicit catalog validation."""
     interests = [i.lower() for i in parsed.interests]
     score = lambda c: sum(1 for i in interests if i in c.tags.lower() or i in c.name.lower())
     by = lambda t: [c for c in catalog.values() if c.type == t]
+
     hotels = sorted(by("hotel"), key=lambda c: c.cost)
-    style = (parsed.accommodation_style or ("budget" if strategy.budget_mode else "midrange"))
-    hotel = hotels[0] if style in ("budget", "homestay") else hotels[-1] if style == "luxury" else hotels[len(hotels) // 2]
-    trans = min(by("transport"), key=lambda c: line_cost(c, parsed.days, parsed.travelers))
-    acts = sorted(by("activity"), key=lambda c: (-score(c), c.cost))[:max(2, parsed.days * 2)]
-    acts.sort(key=lambda c: c.area)
-    veg = "vegetarian" in parsed.food_preferences
-    foods = [f for f in sorted(by("food"), key=lambda c: (-score(c), c.cost)) if not veg or "veg" in f.tags]
-    foods = foods or sorted(by("food"), key=lambda c: c.cost)
+    transports = by("transport")
+    activities = sorted(by("activity"), key=lambda c: (-score(c), c.cost))
+    foods_all = sorted(by("food"), key=lambda c: (-score(c), c.cost))
+
+    if not hotels:
+        raise ValueError(f"No hotel candidates are available for {parsed.destination}.")
+    if not transports:
+        raise ValueError(f"No transport candidates are available for {parsed.destination}.")
+    if not activities:
+        raise ValueError(f"No activity candidates are available for {parsed.destination}.")
+    if not foods_all:
+        raise ValueError(f"No food candidates are available for {parsed.destination}; check the destination knowledge base or Research retrieval.")
+
+    style = parsed.accommodation_style or ("budget" if strategy.budget_mode else "midrange")
+    hotel = (hotels[0] if style in ("budget", "homestay") else hotels[-1] if style == "luxury" else hotels[len(hotels) // 2])
+    trans = min(transports, key=lambda c: line_cost(c, parsed.days, parsed.travelers))
+    acts = activities[:max(2, parsed.days * 2)]
+
+    vegetarian = "vegetarian" in parsed.food_preferences or "vegan" in parsed.food_preferences
+    matching_foods = [f for f in foods_all if not vegetarian or "veg" in f.tags.lower() or "vegetarian" in f.tags.lower()]
+    foods = matching_foods or foods_all
+
     days = []
     per = max(1, -(-len(acts) // parsed.days))
-    for d in range(parsed.days):
-        days.append(DayPick(activities=[a.id for a in acts[d * per:(d + 1) * per]][:3],
-                            meals=[foods[(2 * d + k) % len(foods)].id for k in range(2)]))
+    for day_index in range(parsed.days):
+        day_activities = acts[day_index * per:(day_index + 1) * per][:3]
+        meals = [foods[(2 * day_index + meal_index) % len(foods)].id for meal_index in range(2)]
+        days.append(DayPick(activities=[a.id for a in day_activities], meals=meals))
     return Picks(hotel_id=hotel.id, transport_id=trans.id, days=days)

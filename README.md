@@ -46,3 +46,9 @@ Reviewer } up to MAX_REVISIONS -> deterministic trim if still over budget -> you
 - Every event in the Agent Activity page is a real backend event, stored in `agent_execution_logs`.
 - Memory: `confirmed` (you stated/approved/edited) vs `assumed` (AI guess, only a soft hint).
 - Single demo user via the `X-User-Id` header; there is no login and no password or token is stored.
+
+## RAG availability and fallback
+
+Semantic RAG (Sentence Transformers + ChromaDB) improves relevance but is optional at runtime. If the embedding stack cannot load (for example, a Windows Application Control policy blocks a native dependency), TravelMate falls back to keyword retrieval over the bundled destination knowledge base. Research also completes the activity and food catalog from that local knowledge base so itinerary generation does not depend on vector search. The deterministic planner validates that required catalog categories exist and reports a clear error instead of attempting modulo by zero.
+
+All bundled destination prices are approximate estimates, not live quotes.

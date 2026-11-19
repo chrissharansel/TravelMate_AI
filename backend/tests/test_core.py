@@ -124,3 +124,85 @@ def test_budget_math_is_deterministic():
     assert b.accommodation == 1000 * 2 * 2 and b.transport == 500 * 3 * 2
     assert b.activities == 100 * 3 * 3 and b.food == 200 * 2 * 3 * 3
     assert b.total == 4000 + 3000 + 900 + 3600 and b.within_budget
+
+
+
+def test_knowledge_retrieval_falls_back_when_semantic_rag_is_blocked(monkeypatch):
+    from app.tools import knowledge
+
+    def blocked(*args, **kwargs):
+        raise ImportError("DLL load failed: Application Control blocked _xxhash")
+
+    monkeypatch.setattr(rag, "search", blocked)
+    results = knowledge.knowledge_retrieval("beach nature sightseeing", "Goa", ("activity", "food"), 10)
+    assert results
+    assert any(item["type"] == "activity" for item in results)
+    assert any(item["type"] == "food" for item in results)
+    assert all(item["source"].startswith("travelmate_kb/goa#") for item in results)
+
+
+def test_greedy_planner_reports_missing_food_instead_of_modulo_zero():
+    from app.agents.planner import greedy_picks
+    from app.models import Item, ParsedRequest, Strategy, Task
+
+    catalog = {
+        "h0": Item(id="h0", type="hotel", name="Stay", cost=1000),
+        "t0": Item(id="t0", type="transport", name="Bus", cost=200),
+        "a0": Item(id="a0", type="activity", name="Beach", cost=0, tags="beach"),
+    }
+    parsed = ParsedRequest(destination="Goa", budget=10000, days=2, travelers=1)
+    strategy = Strategy(tasks=[Task(id="draft", agent="Planner", description="Draft")])
+    with pytest.raises(ValueError, match="No food candidates"):
+        greedy_picks(catalog, parsed, {}, strategy)
+
+
+def test_research_keeps_local_food_and_activity_catalog_when_rag_returns_empty(monkeypatch):
+    from app.agents.research import ResearchAgent
+    from app.models import ParsedRequest, Strategy, Task
+    from app.runtime import RunContext, EventBus
+
+    class DummyRepo:
+        pass
+
+    class DummyContext(RunContext):
+        async def tool(self, agent, name, func, **kwargs):
+            if name == "knowledge_retrieval":
+                return []
+            return func(**kwargs)
+
+        async def emit(self, *args, **kwargs):
+            return None
+
+        def step(self, *args, **kwargs):
+            class Step:
+                async def __aenter__(self): return self
+                async def __aexit__(self, *args): return False
+            return Step()
+
+    ctx = DummyContext(DummyRepo(), "u", "t", "e", EventBus())
+    agent = ResearchAgent(ctx)
+    parsed = ParsedRequest(destination="Goa", budget=15000, days=3, travelers=2, stated_interests=["beach"])
+    strategy = Strategy(tasks=[Task(id="research", agent="Research", description="Research")])
+    result = asyncio.run(agent.research(parsed, strategy))
+    assert any(item.type == "food" for item in result.candidates)
+    assert any(item.type == "activity" for item in result.candidates)
+
+
+def test_full_trip_uses_fallback_planner_when_rag_and_llm_plan_fail(monkeypatch):
+    def blocked_rag(*args, **kwargs):
+        raise ImportError("DLL load failed: Application Control blocked _xxhash")
+
+    monkeypatch.setattr(rag, "search", blocked_rag)
+    calls = {"parse": 0}
+
+    async def invalid_plan(instructions, payload):
+        if "Extract trip details" in instructions:
+            return PARSE
+        return None
+
+    monkeypatch.setattr(cs, "ask_json", invalid_plan)
+    events = run(MemRepo())
+    assert any(e["type"] == "decision" and "deterministic fallback planner" in e["message"] for e in events)
+    assert not any(e["type"] == "error" and "ZeroDivisionError" in e["message"] for e in events)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["status"] == "awaiting_approval"

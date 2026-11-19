@@ -35,6 +35,12 @@ class ResearchAgent:
                     prev = cands.get(h["id"])
                     cands.setdefault(h["id"], _item(h))
                     sources.append({"id": h["id"], "name": h["name"], "source": h["source"], "score": h["score"], "query": q})
+            # RAG is an enhancement, not a hard dependency. Complete the local
+            # catalog so activities and meals remain available if embeddings fail.
+            for t in ("activity", "food"):
+                for p in await ctx.tool(self.name, "list_places", list_places, destination=dest, type_=t):
+                    cands.setdefault(p["id"], _item(p))
+
             acts = [c for c in cands.values() if c.type == "activity"]
             foods = [c for c in cands.values() if c.type == "food"]
             if len(acts) < min(n_act, 6) or len(foods) < 3:       # decision: widen the search
